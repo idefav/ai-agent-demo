@@ -28,19 +28,19 @@ class AddInputArgs(BaseModel):
     a: int =Field(description="first number")
     b: int =Field(description="second number")
 
-# @tool(description="Add two numbers together.", args_schema=AddInputArgs, return_direct=True)
+@tool(description="Add two numbers together.", args_schema=AddInputArgs, return_direct=True)
 def add(a: int, b: int) -> int:
     """Add two numbers together."""
     return a + b
 
 
-add_tools = Tool.from_function(
-    func=add,
-    name="add",
-    description="计算两个数相加"
-)
+# add_tools = Tool.from_function(
+#     func=add,
+#     name="add",
+#     description="计算两个数相加"
+# )
 
-llm_bind_tools = llm.bind_tools([add_tools])
+llm_bind_tools = llm.bind_tools([add])
 
 chain = chat_prompt | llm_bind_tools
 
@@ -58,5 +58,7 @@ for tool_call in response.tool_calls:
     print(f"Tool Name: {tool_name}")
     tool_args=tool_call["args"]
     print(f"Tool Arguments: {tool_args}")
-    result = tool_dict[tool_name](int(tool_args["__arg1"]), int(tool_args["example_parameter_2"]))
-    print(f"Tool Call Result: {result}")
+    # result = tool_dict[tool_name](int(tool_args["__arg1"]), int(tool_args["example_parameter_2"]))
+    # print(f"Tool Call Result: {result}")
+    response = tool_dict[tool_name].invoke(tool_args)
+    print(response)

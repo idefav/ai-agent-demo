@@ -3,7 +3,6 @@ import os
 
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
-
 from app.common.init import initEnvironment
 
 initEnvironment()
