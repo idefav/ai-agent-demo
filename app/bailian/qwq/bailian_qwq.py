@@ -1,7 +1,7 @@
 from openai import OpenAI
 import os
 
-from common.init import initEnvironment
+from app.common.init import initEnvironment
 
 initEnvironment()
 
