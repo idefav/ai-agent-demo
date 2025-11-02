@@ -9,6 +9,7 @@ dependencies = [
     "langchain-classic>=1.0.0",
     "langchain-community>=0.4.1",
     "langchain-experimental>=0.0.42",
+    "langchain-mcp-adapters>=0.1.12",
     "langchain-ollama>=1.0.0",
     "langchain-openai>=1.0.1",
     "openai>=2.6.1",
