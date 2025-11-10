@@ -5,6 +5,7 @@ import sys
 from threading import Thread
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import wrap_tool_call
 from langchain_community.agent_toolkits import FileManagementToolkit
 from langchain_core.messages import AIMessage, ToolMessage, AIMessageChunk
 from langgraph.checkpoint.memory import MemorySaver
@@ -62,6 +63,18 @@ def print_with_time(title, content, elapsed_time, icon="📝"):
     print("=" * 60)
 
 
+@wrap_tool_call
+async def handle_tool_errors(request, handler):
+    """Handle tool execution errors with custom messages."""
+    try:
+        return await handler(request)
+    except Exception as e:
+        # Return a custom error message to the model
+        return ToolMessage(
+            content=f"Tool error: Please check your input and try again. ({str(e)})",
+            tool_call_id=request.tool_call["id"]
+        )
+
 async def create_multi_chat_agent():
     file_toolkit = FileManagementToolkit(root_dir=ROOT_DIR)
     # file_tools = file_toolkit.get_tools()
@@ -86,8 +99,10 @@ async def create_multi_chat_agent():
                          tools=sandbox_tools,
                          checkpointer=memory_saver,
                          system_prompt=web_system_prompt,
+                         middleware=[handle_tool_errors],
                          debug=False)
     return agent
+
 
 
 async def run():
@@ -112,35 +127,36 @@ async def run():
             "messages": [
                 {"role": "user", "content": f"{user_input}"}
             ]
-        }, stream_mode=[ "updates"], config={
+        }, stream_mode=[ "messages" ], config={
             "configurable": {
                 "thread_id": "1"
             }
         }):
             # 处理 messages 模式 - 逐token流式输出
             if isinstance(chunk, tuple) and len(chunk) == 2:
-                node_name, message = chunk
+                stream_type, message_chunk = chunk
+                if stream_type=="messages":
+                    if isinstance(message_chunk, tuple):
+                        msg_chunk, metadata = message_chunk
+                        if isinstance(msg_chunk, AIMessageChunk):
+                            # 停止思考动画(只在第一个token时)
+                            if thinking_animation.is_thinking:
+                                thinking_animation.stop()
+                                if ai_start_time is None:
+                                    ai_start_time = start_time
+                                print("\n" + "🤖 " + "=" * 58)
+                                print("🤖 AI 回复 (实时流式):")
+                                print("-" * 60)
+                                is_streaming_ai = True
 
-                for msg in message:
-                    if isinstance(msg, AIMessageChunk):
-                        # 停止思考动画(只在第一个token时)
-                        if thinking_animation.is_thinking:
-                            thinking_animation.stop()
-                            if ai_start_time is None:
-                                ai_start_time = start_time
-                            print("\n" + "🤖 " + "=" * 58)
-                            print("🤖 AI 回复 (实时流式):")
-                            print("-" * 60)
-                            is_streaming_ai = True
+                            # 逐token输出AI内容
+                            if hasattr(msg_chunk, 'content') and msg_chunk.content:
+                                # 计算新增的内容
+                                new_content = msg_chunk.content
+                                print(new_content, end="", flush=True)
+                                current_ai_content = msg_chunk.content
+                continue  # 跳过后续处理，继续下一个chunk
 
-                        # 逐token输出AI内容
-                        if hasattr(msg, 'content') and msg.content:
-                            # 计算新增的内容
-                            new_content = msg.content[len(current_ai_content):]
-                            print(new_content, end="", flush=True)
-                            current_ai_content = msg.content
-
-                continue
 
             # 处理 updates 模式
             items = chunk.items()
