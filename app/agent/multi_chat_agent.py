@@ -134,175 +134,205 @@ async def run():
         current_ai_content = ""  # 用于累积AI回复内容
         is_streaming_ai = False  # 标记是否正在流式输出AI回复
 
-        async for chunk in agent.astream(input={
-            "messages": [
-                {"role": "user", "content": f"{user_input}"}
-            ]
-        }, stream_mode=["messages", "updates"], config={
-            "configurable": {
-                "thread_id": "1"
-            },
-            "recursion_limit": 100
-        }):
-            # 处理 messages 模式 - 逐token流式输出
-            if isinstance(chunk, tuple) and len(chunk) == 2:
-                stream_type, message_chunk = chunk
-                if stream_type == "messages":
-                    if isinstance(message_chunk, tuple):
-                        msg_chunk, metadata = message_chunk
-                        if isinstance(msg_chunk, AIMessageChunk):
-                            # 停止思考动画(只在第一个token时)
-                            if thinking_animation.is_thinking:
+        try:
+            async for chunk in agent.astream(input={
+                "messages": [
+                    {"role": "user", "content": f"{user_input}"}
+                ]
+            }, stream_mode=["messages", "updates"], config={
+                "configurable": {
+                    "thread_id": "1"
+                },
+                "recursion_limit": 100
+            }):
+                # 处理 messages 模式 - 逐token流式输出
+                if isinstance(chunk, tuple) and len(chunk) == 2:
+                    stream_type, message_chunk = chunk
+                    if stream_type == "messages":
+                        if isinstance(message_chunk, tuple):
+                            msg_chunk, metadata = message_chunk
+                            if isinstance(msg_chunk, AIMessageChunk):
+                                # 停止思考动画(只在第一个token时)
+                                if thinking_animation.is_thinking:
+                                    thinking_animation.stop()
+                                    if ai_start_time is None:
+                                        ai_start_time = start_time
+                                    print("\n" + "🤖 " + "=" * 58)
+                                    print("🤖 AI 回复 (实时流式):")
+                                    print("-" * 60)
+                                    is_streaming_ai = True
+
+                                # 逐token输出AI内容
+                                if hasattr(msg_chunk, 'content') and msg_chunk.content:
+                                    # 计算新增的内容
+                                    new_content = msg_chunk.content
+                                    print(new_content, end="", flush=True)
+                                    current_ai_content = msg_chunk.content
+                    elif stream_type == "updates":
+                        items = message_chunk.items()
+                        for item in items:
+                            if not isinstance(item, tuple) or len(item) != 2:
+                                continue
+                            node_name, node_output = item
+                            if node_name == 'model':
+                                model_msg = node_output
+                                if "messages" not in model_msg:
+                                    continue
+                                for msg in model_msg["messages"]:
+                                    if isinstance(msg, AIMessage):
+                                        if msg.content != "":
+                                            continue
+                                        elif not msg.content and msg.tool_calls:
+                                            # 工具调用
+                                            tool_name = msg.tool_calls[-1]['name']
+                                            tool_start_times[tool_name] = time.time()
+
+                                            # 清除思考动画
+                                            thinking_animation.stop()
+
+                                            print("\n" + "🔧 " + "=" * 58)
+                                            print(f"📞 准备调用工具: {tool_name}")
+                                            print("-" * 60)
+                                            print("📋 请求参数:")
+                                            print(json.dumps(msg.tool_calls[-1]['args'], indent=2, ensure_ascii=False))
+                                            print("=" * 60)
+
+                                            # 显示工具执行动画
+                                            print("⏳ 工具执行中...", end="", flush=True)
+                                    elif isinstance(msg, ToolMessage):
+                                        # 清除工具执行提示
+                                        sys.stdout.write("\r" + " " * 50 + "\r")
+                                        sys.stdout.flush()
+
+                                        print_with_time(
+                                            f"� 工具 [{msg.name}] 执行完成",
+                                            msg.content,
+                                            0,
+                                            "✅"
+                                        )
+                            elif node_name == 'tools':
+                                tool_msg = node_output
+                                if "messages" not in tool_msg:
+                                    continue
+                                for msg in tool_msg["messages"]:
+                                    if isinstance(msg, ToolMessage):
+                                        # 清除工具执行提示
+                                        sys.stdout.write("\r" + " " * 50 + "\r")
+                                        sys.stdout.flush()
+
+                                        print_with_time(
+                                            f"� 工具 [{msg.name}] 执行完成",
+                                            msg.content,
+                                            0,
+                                            "✅"
+                                        )
+
+                    continue  # 跳过后续处理，继续下一个chunk
+
+                # 处理 updates 模式
+                items = chunk.items()
+
+                for node_name, node_output in items:
+                    if "messages" not in node_output:
+                        continue
+                    for msg in node_output["messages"]:
+                        if isinstance(msg, AIMessage):
+                            # 如果之前在流式输出，显示结束标记
+                            if is_streaming_ai and current_ai_content:
+                                ai_elapsed = time.time() - ai_start_time
+                                print()  # 换行
+                                print("=" * 60)
+                                print(f"⏱️  AI 回复耗时: {ai_elapsed:.2f}秒")
+                                is_streaming_ai = False
+                                current_ai_content = ""
+
+                            if msg.content and not is_streaming_ai:
+                                # 如果没有流式输出过，直接显示完整内容(备用方案)
                                 thinking_animation.stop()
                                 if ai_start_time is None:
                                     ai_start_time = start_time
+
                                 print("\n" + "🤖 " + "=" * 58)
-                                print("🤖 AI 回复 (实时流式):")
+                                print("🤖 AI 回复:")
                                 print("-" * 60)
-                                is_streaming_ai = True
+                                print(msg.content)
 
-                            # 逐token输出AI内容
-                            if hasattr(msg_chunk, 'content') and msg_chunk.content:
-                                # 计算新增的内容
-                                new_content = msg_chunk.content
-                                print(new_content, end="", flush=True)
-                                current_ai_content = msg_chunk.content
-                elif stream_type == "updates":
-                    items = message_chunk.items()
-                    for item in items:
-                        if not isinstance(item, tuple) or len(item) != 2:
-                            continue
-                        node_name, node_output = item
-                        if node_name == 'model':
-                            model_msg = node_output
-                            if "messages" not in model_msg:
-                                continue
-                            for msg in model_msg["messages"]:
-                                if isinstance(msg, AIMessage):
-                                    if msg.content != "":
-                                        continue
-                                    elif not msg.content and msg.tool_calls:
-                                        # 工具调用
-                                        tool_name = msg.tool_calls[-1]['name']
-                                        tool_start_times[tool_name] = time.time()
+                                ai_elapsed = time.time() - ai_start_time
+                                print("=" * 60)
+                                print(f"⏱️  AI 回复耗时: {ai_elapsed:.2f}秒")
 
-                                        # 清除思考动画
-                                        thinking_animation.stop()
+                            if not msg.content and msg.tool_calls:
+                                # 工具调用
+                                tool_name = msg.tool_calls[-1]['name']
+                                tool_start_times[tool_name] = time.time()
 
-                                        print("\n" + "🔧 " + "=" * 58)
-                                        print(f"📞 准备调用工具: {tool_name}")
-                                        print("-" * 60)
-                                        print("📋 请求参数:")
-                                        print(json.dumps(msg.tool_calls[-1]['args'], indent=2, ensure_ascii=False))
-                                        print("=" * 60)
+                                print("\n" + "🔧 " + "=" * 58)
+                                print(f"📞 准备调用工具: {tool_name}")
+                                print("-" * 60)
+                                print("📋 请求参数:")
+                                print(json.dumps(msg.tool_calls[-1]['args'], indent=2, ensure_ascii=False))
+                                print("=" * 60)
 
-                                        # 显示工具执行动画
-                                        print("⏳ 工具执行中...", end="", flush=True)
-                                elif isinstance(msg, ToolMessage):
-                                    # 清除工具执行提示
-                                    sys.stdout.write("\r" + " " * 50 + "\r")
-                                    sys.stdout.flush()
+                                # 显示工具执行动画
+                                print("⏳ 工具执行中...", end="", flush=True)
 
-                                    print_with_time(
-                                        f"� 工具 [{msg.name}] 执行完成",
-                                        msg.content,
-                                        0,
-                                        "✅"
-                                    )
-                        elif node_name == 'tools':
-                            tool_msg = node_output
-                            if "messages" not in tool_msg:
-                                continue
-                            for msg in tool_msg["messages"]:
-                                if isinstance(msg, ToolMessage):
-                                    # 清除工具执行提示
-                                    sys.stdout.write("\r" + " " * 50 + "\r")
-                                    sys.stdout.flush()
+                        if isinstance(msg, ToolMessage):
+                            # 清除工具执行提示
+                            sys.stdout.write("\r" + " " * 50 + "\r")
+                            sys.stdout.flush()
 
-                                    print_with_time(
-                                        f"� 工具 [{msg.name}] 执行完成",
-                                        msg.content,
-                                        0,
-                                        "✅"
-                                    )
+                            # 计算工具调用耗时
+                            tool_elapsed = 0
+                            if msg.name in tool_start_times:
+                                tool_elapsed = time.time() - tool_start_times[msg.name]
+                                del tool_start_times[msg.name]
 
-                continue  # 跳过后续处理，继续下一个chunk
+                            print_with_time(
+                                f"� 工具 [{msg.name}] 执行完成",
+                                msg.content,
+                                tool_elapsed,
+                                "✅"
+                            )
 
-            # 处理 updates 模式
-            items = chunk.items()
+                            # 工具执行完后,重新开始思考动画
+                            thinking_animation.start()
+                            ai_start_time = time.time()            # 确保动画停止
+            thinking_animation.stop()
 
-            for node_name, node_output in items:
-                if "messages" not in node_output:
-                    continue
-                for msg in node_output["messages"]:
-                    if isinstance(msg, AIMessage):
-                        # 如果之前在流式输出，显示结束标记
-                        if is_streaming_ai and current_ai_content:
-                            ai_elapsed = time.time() - ai_start_time
-                            print()  # 换行
-                            print("=" * 60)
-                            print(f"⏱️  AI 回复耗时: {ai_elapsed:.2f}秒")
-                            is_streaming_ai = False
-                            current_ai_content = ""
+            # 显示总耗时
+            total_elapsed = time.time() - start_time
+            print(f"\n⏱️  总耗时: {total_elapsed:.2f}秒")
 
-                        if msg.content and not is_streaming_ai:
-                            # 如果没有流式输出过，直接显示完整内容（备用方案）
-                            thinking_animation.stop()
-                            if ai_start_time is None:
-                                ai_start_time = start_time
-
-                            print("\n" + "🤖 " + "=" * 58)
-                            print("🤖 AI 回复:")
-                            print("-" * 60)
-                            print(msg.content)
-
-                            ai_elapsed = time.time() - ai_start_time
-                            print("=" * 60)
-                            print(f"⏱️  AI 回复耗时: {ai_elapsed:.2f}秒")
-
-                        if not msg.content and msg.tool_calls:
-                            # 工具调用
-                            tool_name = msg.tool_calls[-1]['name']
-                            tool_start_times[tool_name] = time.time()
-
-                            print("\n" + "🔧 " + "=" * 58)
-                            print(f"📞 准备调用工具: {tool_name}")
-                            print("-" * 60)
-                            print("📋 请求参数:")
-                            print(json.dumps(msg.tool_calls[-1]['args'], indent=2, ensure_ascii=False))
-                            print("=" * 60)
-
-                            # 显示工具执行动画
-                            print("⏳ 工具执行中...", end="", flush=True)
-
-                    if isinstance(msg, ToolMessage):
-                        # 清除工具执行提示
-                        sys.stdout.write("\r" + " " * 50 + "\r")
-                        sys.stdout.flush()
-
-                        # 计算工具调用耗时
-                        tool_elapsed = 0
-                        if msg.name in tool_start_times:
-                            tool_elapsed = time.time() - tool_start_times[msg.name]
-                            del tool_start_times[msg.name]
-
-                        print_with_time(
-                            f"� 工具 [{msg.name}] 执行完成",
-                            msg.content,
-                            tool_elapsed,
-                            "✅"
-                        )
-
-                        # 工具执行完后,重新开始思考动画
-                        thinking_animation.start()
-                        ai_start_time = time.time()
-
-        # 确保动画停止
-        thinking_animation.stop()
-
-        # 显示总耗时
-        total_elapsed = time.time() - start_time
-        print(f"\n⏱️  总耗时: {total_elapsed:.2f}秒")
+        except RecursionError as e:
+            # 处理递归深度超限错误
+            thinking_animation.stop()
+            print("\n" + "⚠️ " + "=" * 58)
+            print("⚠️ 错误: 递归次数超过限制")
+            print("-" * 60)
+            print("AI 执行了过多的步骤,可能陷入了循环或任务过于复杂。")
+            print("=" * 60)
+            
+            retry = input("\n是否继续对话? (输入 'y' 继续, 其他键退出): ").strip().lower()
+            if retry != 'y':
+                print("👋 退出对话。")
+                break
+            print("✅ 继续对话,请重新输入您的问题...")
+            
+        except Exception as e:
+            # 处理其他异常(如模型调用失败、网络错误等)
+            thinking_animation.stop()
+            print("\n" + "❌ " + "=" * 58)
+            print("❌ 发生错误")
+            print("-" * 60)
+            print(f"错误类型: {type(e).__name__}")
+            print(f"错误信息: {str(e)}")
+            print("=" * 60)
+            
+            retry = input("\n是否继续对话? (输入 'y' 继续, 其他键退出): ").strip().lower()
+            if retry != 'y':
+                print("👋 退出对话。")
+                break
+            print("✅ 继续对话,请重新输入您的问题...")
 
         # if "model" in chunk:
         #     print("AI>> ", end="", flush=True)
