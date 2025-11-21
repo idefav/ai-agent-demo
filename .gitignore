@@ -13,3 +13,6 @@ wheels/
 .idea/
 /tmp
 gittest/
+.langgraph_api/
+ai_agent_demo.egg-info/
+/.langgraph_api
