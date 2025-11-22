@@ -1,0 +1,9 @@
+{
+    "namespace": [
+        "test"
+    ],
+    "key": "foo",
+    "value": {
+        "bar": "baz"
+    }
+}

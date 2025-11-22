@@ -6,6 +6,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.agent.tools.sandbox_tools_client import get_sandbox_tools
+from app.agent.tools.time_tools_client import get_stdio_current_time_tool
 from app.bailian.common import llm
 
 WORKING_DIR = "/home/gem/workspace"
@@ -30,6 +31,9 @@ async def handle_tool_errors(request, handler):
 
 
 sandbox_tools = asyncio.run(get_sandbox_tools())
+
+#time_tools = asyncio.run(get_stdio_current_time_tool())
+
 
 web_system_prompt = f"""你是一个前端技术专家, 擅长使用各种前端技术完成用户的需求。\n 
 
